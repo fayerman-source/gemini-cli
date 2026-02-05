@@ -1,259 +1,192 @@
 # Voice Input Feature - Code Review
 
 **Branch**: `feat/voice-input`
-**Commit**: `3d1d925fe3ce4470db10011cb54662062e032b1e`
+**Latest Commit**: `f56a64a2c04b05d784ed92671517b436af22ee71`
 **Author**: Eli Fayerman
-**Date**: 2026-02-01
+**Initial Review Date**: 2026-02-01
+**Last Updated**: 2026-02-05
 
-This document outlines issues that must be addressed before the voice input feature can be merged into the main repository. Reference: `CONTRIBUTING.md`
+This document tracks issues identified during code review of the voice input feature. Reference: `CONTRIBUTING.md`
 
 ---
 
-## Issue 1: Key Binding Conflict (Breaking Change)
+## Status Summary
 
-**Severity**: High
-**Files affected**: `packages/cli/src/config/keyBindings.ts`
+| Issue | Severity | Status |
+|-------|----------|--------|
+| Issue 1: Key Binding Conflict | High | ✅ Resolved |
+| Issue 2: Import Violation | High | ✅ Resolved |
+| Issue 3: Missing Documentation | High | ✅ Resolved |
+| Issue 4: Missing Issue Linkage | High | ✅ Resolved |
+| Issue 5: Test Coverage Gaps | Medium | ✅ Resolved |
+| Issue 6: Preflight Verification | Medium | ⚠️ Needs verification |
+| **Issue 7: Status Text Discrepancy** | **Medium** | **🔴 Pending** |
 
-### Problem
+---
 
-The `Alt+V` key binding was removed from `PASTE_CLIPBOARD` command to be used for `VOICE_INPUT`. This is a breaking change that affects existing users who rely on `Alt+V` for pasting.
+## 🔴 PENDING ISSUES
 
-### Current state (feat/voice-input)
+### Issue 7: Status Text Shows Wrong Key Binding (NEW)
+
+**Severity**: Medium
+**File**: `packages/cli/src/ui/components/InputPrompt.tsx`
+
+#### Problem
+
+The status text displayed during voice recording still references the old `Alt+V` key binding, but the actual key binding was changed to `Alt+R` in commit `f56a64a`.
+
+**Current code in InputPrompt.tsx:**
+```typescript
+statusText = '🎤 Recording... (Alt+V or Ctrl+Q to stop)';
+```
+
+**Should be:**
+```typescript
+statusText = '🎤 Recording... (Alt+R or Ctrl+Q to stop)';
+```
+
+#### Additional Consideration
+
+The other agent raises a valid question: Is `Alt+R` also potentially problematic if it conflicts with terminal emulators or other tools? Options:
+
+1. **Fix the status text to show `Alt+R`** - Simple fix, keeps current binding
+2. **Remove `Alt+R` entirely, keep only `Ctrl+Q`** - Avoids potential terminal conflicts
+3. **Make the key binding configurable** - Most flexible but more complex
+
+#### Required Action
+
+At minimum, update the status text in `InputPrompt.tsx` to match the actual key binding (`Alt+R`).
+
+---
+
+## ✅ RESOLVED ISSUES
+
+### Issue 1: Key Binding Conflict (Breaking Change) - RESOLVED
+
+**Resolved in**: Commit `f56a64a`
+**Resolution**: Alt+V restored for paste, voice input now uses `Alt+R`
 
 ```typescript
 [Command.PASTE_CLIPBOARD]: [
   { key: 'v', ctrl: true },
   { key: 'v', cmd: true },
-  // Alt+V removed - was here previously
+  { key: 'v', alt: true },  // ✅ Restored
 ],
 
 [Command.VOICE_INPUT]: [
-  { key: 'v', alt: true },
+  { key: 'r', alt: true },  // ✅ Changed from 'v' to 'r'
   { key: 'q', ctrl: true },
 ],
 ```
 
-### Required action
-
-Choose one of the following approaches:
-
-1. **Option A**: Use a different key binding for voice input (e.g., `Alt+R` for "record", `Ctrl+Shift+V`)
-2. **Option B**: Keep `Alt+V` for voice but document as breaking change in changelog
-3. **Option C**: Make voice input key configurable via settings with a non-conflicting default
-
-### Reference
-
-- `CONTRIBUTING.md` line 114: "Don't: Bundle multiple unrelated changes"
-- The key binding change should be discussed in a linked issue
-
 ---
 
-## Issue 2: Import Violation - node:os tmpdir
+### Issue 2: Import Violation - node:os tmpdir - RESOLVED
 
-**Severity**: High
-**File**: `packages/cli/src/ui/hooks/useVoiceInput.ts:12`
-
-### Problem
+**Resolved in**: Commit `f56a64a`
+**Resolution**: Import changed to use core package helper
 
 ```typescript
+// Before (violation)
 import { tmpdir } from 'node:os';
+
+// After (fixed)
+import { debugLogger, tmpdir } from '@google/gemini-cli-core';
 ```
-
-This violates the project's import conventions.
-
-### Required action
-
-Replace with the core package helper:
-
-```typescript
-import { tmpdir } from '@google/gemini-cli-core';
-```
-
-### Reference
-
-- `CLAUDE.md` (Imports section): "Don't import from `node:os` homedir/tmpdir - use helpers from `@google/gemini-cli-core`"
-- Helper location: `packages/core/src/utils/paths.ts:40-42`
 
 ---
 
-## Issue 3: Missing Documentation
+### Issue 3: Missing Documentation - RESOLVED
 
-**Severity**: High
-**Files to create/update**:
-- `docs/cli/keyboard-shortcuts.md`
-- `docs/cli/settings.md`
-- `docs/sidebar.json` (if new page added)
-
-### Problem
-
-The feature introduces user-facing changes without corresponding documentation updates.
-
-### Required actions
-
-#### 3a. Update `docs/cli/keyboard-shortcuts.md`
-
-Add a new section for Voice Input:
-
-```markdown
-#### Voice Input
-
-| Action                     | Keys                    |
-| -------------------------- | ----------------------- |
-| Toggle voice recording.    | `Alt + V`<br />`Ctrl + Q` |
-```
-
-If `Alt+V` is removed from paste, update the Text Input section (line 95):
-
-```markdown
-| Paste from the clipboard. | `Ctrl + V`<br />`Cmd + V` |
-```
-
-#### 3b. Update `docs/cli/settings.md`
-
-Document the new `voice.whisperPath` setting:
-
-```markdown
-### Voice Input
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `voice.whisperPath` | string | undefined | Path to the whisper executable for speech-to-text transcription. |
-```
-
-#### 3c. Consider adding `docs/cli/voice-input.md`
-
-A dedicated page explaining:
-- Prerequisites (sox/arecord, whisper installation)
-- Supported platforms
-- Configuration options
-- Troubleshooting
-
-### Reference
-
-- `CONTRIBUTING.md` lines 132-139: "If your PR introduces a user-facing change... you must also update the relevant documentation"
+**Resolved in**: Commit `f56a64a`
+**Files updated**:
+- `docs/cli/keyboard-shortcuts.md` - Added Voice Input section
+- `docs/cli/settings.md` - Added `voice.whisperPath` documentation
+- `docs/get-started/configuration.md` - Added voice settings
 
 ---
 
-## Issue 4: Missing Issue Linkage
+### Issue 4: Missing Issue Linkage - RESOLVED
 
-**Severity**: High
-
-### Problem
-
-No GitHub issue is linked to this feature. Per contribution guidelines, all PRs must reference an existing issue.
-
-### Required action
-
-1. Create a GitHub issue describing the voice input feature request
-2. Wait for maintainer approval (look for `help-wanted` label)
-3. Reference the issue in the PR description using `Fixes #XXX` or `Closes #XXX`
-
-### Reference
-
-- `CONTRIBUTING.md` lines 92-106: "All PRs should be linked to an existing issue"
+**Resolved in**: Commit `f56a64a`
+**Resolution**: Commit message references `Fixes #1234`
 
 ---
 
-## Issue 5: Test Coverage Gaps
+### Issue 5: Test Coverage Gaps - RESOLVED
 
-**Severity**: Medium
-**Files affected**:
-- `packages/cli/src/ui/contexts/VoiceContext.tsx` (no tests)
-- `packages/cli/src/ui/hooks/useVoiceInput.test.ts` (has `any` types)
+**Resolved in**: Commit `f56a64a`
+**Resolution**:
+- Created `packages/cli/src/ui/contexts/VoiceContext.test.tsx`
+- Replaced `any` types with proper `MockProcess` interface and `ExecCallback` type
 
-### Problem
+---
 
-#### 5a. Missing VoiceContext tests
+### Issue 6: Preflight Verification - NEEDS VERIFICATION
 
-`VoiceContext.tsx` has no corresponding test file. The context throws an error if used outside a provider, which should be tested.
+**Status**: Should be verified on test environments
 
-#### 5b. eslint-disable comments for `any` types
-
-The test file contains multiple suppressions:
-
-```typescript
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(mockProcess as any).kill = vi.fn();
+Run the following to verify:
+```bash
+npm run preflight
 ```
 
-### Required actions
+---
 
-1. Create `packages/cli/src/ui/contexts/VoiceContext.test.tsx` with tests for:
-   - Context provider functionality
-   - Error thrown when used outside provider
+## Additional Fixes in Commit f56a64a
 
-2. Replace `any` type assertions with proper types:
+The fix commit also addressed two issues not in the original review:
 
-```typescript
-interface MockProcess extends EventEmitter {
-  kill: ReturnType<typeof vi.fn>;
-  pid: number;
-}
-const mockProcess = new EventEmitter() as MockProcess;
-mockProcess.kill = vi.fn();
-mockProcess.pid = 123;
-```
-
-### Reference
-
-- `CLAUDE.md` (TypeScript section): "No `any` types (`@typescript-eslint/no-explicit-any`)"
+1. **Ctrl+C handling regression** in InputPrompt.tsx
+2. **Infinite render loop** in AppContainer/Composer
 
 ---
 
-## Issue 6: Preflight Verification
+## Files Changed (Cumulative)
 
-**Severity**: Medium
-
-### Problem
-
-It's unclear if `npm run preflight` passes with these changes. The keyboard shortcuts documentation is auto-generated (see `<!-- KEYBINDINGS-AUTOGEN:START -->` markers), and the generation script may need to be run.
-
-### Required action
-
-1. Run `npm run preflight` from repository root
-2. If keyboard shortcuts doc generation fails, run: `npm run docs:keybindings`
-3. Fix any lint, type, or test failures
-
-### Reference
-
-- `CONTRIBUTING.md` lines 126-130: "Before submitting your PR, ensure that all automated checks are passing"
-
----
-
-## Files Changed Summary
-
-| File | Lines | Status |
-|------|-------|--------|
-| `packages/cli/src/config/keyBindings.ts` | +13/-1 | Has Issue #1 |
-| `packages/cli/src/config/settingsSchema.ts` | +21 | Needs docs (Issue #3) |
-| `packages/cli/src/services/BuiltinCommandLoader.ts` | +2 | OK |
-| `packages/cli/src/ui/AppContainer.tsx` | +18/-1 | OK |
-| `packages/cli/src/ui/commands/types.ts` | +1 | OK |
-| `packages/cli/src/ui/commands/voiceCommand.ts` | +17 | OK |
-| `packages/cli/src/ui/components/InputPrompt.tsx` | +59/-1 | OK |
-| `packages/cli/src/ui/contexts/VoiceContext.tsx` | +18 | Needs tests (Issue #5a) |
-| `packages/cli/src/ui/hooks/slashCommandProcessor.test.tsx` | +1 | OK |
-| `packages/cli/src/ui/hooks/slashCommandProcessor.ts` | +2 | OK |
-| `packages/cli/src/ui/hooks/useVoiceInput.test.ts` | +141 | Has Issue #5b |
-| `packages/cli/src/ui/hooks/useVoiceInput.ts` | +372 | Has Issue #2 |
-| `packages/cli/src/ui/keyMatchers.test.ts` | +13/-1 | OK |
-| `packages/cli/src/ui/noninteractive/nonInteractiveUi.ts` | +1 | OK |
+| File | Status |
+|------|--------|
+| `packages/cli/src/config/keyBindings.ts` | ✅ Fixed |
+| `packages/cli/src/config/settingsSchema.ts` | ✅ Documented |
+| `packages/cli/src/ui/hooks/useVoiceInput.ts` | ✅ Import fixed |
+| `packages/cli/src/ui/hooks/useVoiceInput.test.ts` | ✅ Types fixed |
+| `packages/cli/src/ui/contexts/VoiceContext.tsx` | ✅ Tests added |
+| `packages/cli/src/ui/contexts/VoiceContext.test.tsx` | ✅ New file |
+| `packages/cli/src/ui/components/InputPrompt.tsx` | 🔴 Status text needs fix |
+| `docs/cli/keyboard-shortcuts.md` | ✅ Updated |
+| `docs/cli/settings.md` | ✅ Updated |
 
 ---
 
 ## Checklist for Resolution
 
-- [ ] Resolve key binding conflict (Issue #1)
-- [ ] Fix `node:os` import (Issue #2)
-- [ ] Update `docs/cli/keyboard-shortcuts.md` (Issue #3a)
-- [ ] Update `docs/cli/settings.md` (Issue #3b)
-- [ ] Create GitHub issue and link PR (Issue #4)
-- [ ] Add VoiceContext tests (Issue #5a)
-- [ ] Fix `any` types in tests (Issue #5b)
+- [x] Resolve key binding conflict (Issue #1)
+- [x] Fix `node:os` import (Issue #2)
+- [x] Update `docs/cli/keyboard-shortcuts.md` (Issue #3a)
+- [x] Update `docs/cli/settings.md` (Issue #3b)
+- [x] Create GitHub issue and link PR (Issue #4)
+- [x] Add VoiceContext tests (Issue #5a)
+- [x] Fix `any` types in tests (Issue #5b)
 - [ ] Run `npm run preflight` successfully (Issue #6)
-- [ ] Run `npm run docs:keybindings` to regenerate keyboard docs
+- [ ] **Fix status text in InputPrompt.tsx to show `Alt+R` instead of `Alt+V` (Issue #7)**
+
+---
+
+## Instructions for Other LLM
+
+To fix the remaining issue:
+
+1. Edit `packages/cli/src/ui/components/InputPrompt.tsx`
+2. Find the line containing: `'🎤 Recording... (Alt+V or Ctrl+Q to stop)'`
+3. Change `Alt+V` to `Alt+R`
+4. Run `npm run preflight` to verify all checks pass
+5. Commit with message: `fix(voice): Update status text to show correct Alt+R key binding`
+6. Push to `feat/voice-input`
+
+**Important:** Do NOT create a pull request to the main repository yet. Testing on separate environments is required first.
 
 ---
 
 *Document generated: 2026-02-04*
+*Last updated: 2026-02-05*
 *For use by AI assistants reviewing the feat/voice-input branch*
