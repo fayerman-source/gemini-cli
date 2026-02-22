@@ -4,7 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { render as inkRenderDirect, type Instance as InkInstance } from 'ink';
+import {
+  render as inkRenderDirect,
+  type Instance as InkInstance,
+  type RenderOptions,
+} from 'ink';
 import { EventEmitter } from 'node:events';
 import { Box } from 'ink';
 import type React from 'react';
@@ -33,6 +37,13 @@ import { AskUserActionsProvider } from '../ui/contexts/AskUserActionsContext.js'
 import { VoiceContext } from '../ui/contexts/VoiceContext.js';
 import type { VoiceInputReturn } from '../ui/hooks/useVoiceInput.js';
 import { TerminalProvider } from '../ui/contexts/TerminalContext.js';
+import {
+  OverflowProvider,
+  useOverflowActions,
+  useOverflowState,
+  type OverflowActions,
+  type OverflowState,
+} from '../ui/contexts/OverflowContext.js';
 
 import { makeFakeConfig, type Config } from '@google/gemini-cli-core';
 import { FakePersistentState } from './persistentStateFake.js';
@@ -69,6 +80,25 @@ type TerminalState = {
   cols: number;
   rows: number;
 };
+
+type RenderMetrics = Parameters<NonNullable<RenderOptions['onRender']>>[0];
+
+interface InkRenderMetrics extends RenderMetrics {
+  output: string;
+  staticOutput?: string;
+}
+
+function isInkRenderMetrics(
+  metrics: RenderMetrics,
+): metrics is InkRenderMetrics {
+  const m = metrics as Record<string, unknown>;
+  return (
+    typeof m === 'object' &&
+    m !== null &&
+    'output' in m &&
+    typeof m['output'] === 'string'
+  );
+}
 
 class XtermStdout extends EventEmitter {
   private state: TerminalState;
@@ -314,6 +344,8 @@ export type RenderInstance = {
   lastFrame: (options?: { allowEmpty?: boolean }) => string;
   terminal: Terminal;
   waitUntilReady: () => Promise<void>;
+  capturedOverflowState: OverflowState | undefined;
+  capturedOverflowActions: OverflowActions | undefined;
 };
 
 const instances: InkInstance[] = [];
@@ -322,7 +354,10 @@ const instances: InkInstance[] = [];
 export const render = (
   tree: React.ReactElement,
   terminalWidth?: number,
-): RenderInstance => {
+): Omit<
+  RenderInstance,
+  'capturedOverflowState' | 'capturedOverflowActions'
+> => {
   const cols = terminalWidth ?? 100;
   // We use 1000 rows to avoid windows with incorrect snapshots if a correct
   // value was used (e.g. 40 rows). The alternatives to make things worse are
@@ -359,8 +394,10 @@ export const render = (
       debug: false,
       exitOnCtrlC: false,
       patchConsole: false,
-      onRender: (metrics: { output: string; staticOutput?: string }) => {
-        stdout.onRender(metrics.staticOutput ?? '', metrics.output);
+      onRender: (metrics: RenderMetrics) => {
+        if (isInkRenderMetrics(metrics)) {
+          stdout.onRender(metrics.staticOutput ?? '', metrics.output);
+        }
       },
     });
   });
@@ -550,6 +587,16 @@ const mockUIActions: UIActions = {
   handleNewAgentsSelect: vi.fn(),
 };
 
+let capturedOverflowState: OverflowState | undefined;
+let capturedOverflowActions: OverflowActions | undefined;
+const ContextCapture: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  capturedOverflowState = useOverflowState();
+  capturedOverflowActions = useOverflowActions();
+  return <>{children}</>;
+};
+
 export const renderWithProviders = (
   component: React.ReactElement,
   {
@@ -653,6 +700,9 @@ export const renderWithProviders = (
     .filter((item): item is HistoryItemToolGroup => item.type === 'tool_group')
     .flatMap((item) => item.tools);
 
+  capturedOverflowState = undefined;
+  capturedOverflowActions = undefined;
+
   const renderResult = render(
     <AppContext.Provider value={appState}>
       <ConfigContext.Provider value={config}>
@@ -665,37 +715,41 @@ export const renderWithProviders = (
                     value={finalUiState.streamingState}
                   >
                     <UIActionsContext.Provider value={finalUIActions}>
-                      <ToolActionsProvider
-                        config={config}
-                        toolCalls={allToolCalls}
-                      >
-                        <VoiceContext.Provider value={voice}>
-                          <AskUserActionsProvider
-                            request={null}
-                            onSubmit={vi.fn()}
-                            onCancel={vi.fn()}
-                          >
-                            <KeypressProvider>
-                              <MouseProvider
-                                mouseEventsEnabled={mouseEventsEnabled}
-                              >
-                                <TerminalProvider>
-                                  <ScrollProvider>
-                                    <Box
-                                      width={terminalWidth}
-                                      flexShrink={0}
-                                      flexGrow={0}
-                                      flexDirection="column"
-                                    >
-                                      {component}
-                                    </Box>
-                                  </ScrollProvider>
-                                </TerminalProvider>
-                              </MouseProvider>
-                            </KeypressProvider>
-                          </AskUserActionsProvider>
-                        </VoiceContext.Provider>
-                      </ToolActionsProvider>
+                      <OverflowProvider>
+                        <ToolActionsProvider
+                          config={config}
+                          toolCalls={allToolCalls}
+                        >
+                          <VoiceContext.Provider value={voice}>
+                            <AskUserActionsProvider
+                              request={null}
+                              onSubmit={vi.fn()}
+                              onCancel={vi.fn()}
+                            >
+                              <KeypressProvider>
+                                <MouseProvider
+                                  mouseEventsEnabled={mouseEventsEnabled}
+                                >
+                                  <TerminalProvider>
+                                    <ScrollProvider>
+                                      <ContextCapture>
+                                        <Box
+                                          width={terminalWidth}
+                                          flexShrink={0}
+                                          flexGrow={0}
+                                          flexDirection="column"
+                                        >
+                                          {component}
+                                        </Box>
+                                      </ContextCapture>
+                                    </ScrollProvider>
+                                  </TerminalProvider>
+                                </MouseProvider>
+                              </KeypressProvider>
+                            </AskUserActionsProvider>
+                          </VoiceContext.Provider>
+                        </ToolActionsProvider>
+                      </OverflowProvider>
                     </UIActionsContext.Provider>
                   </StreamingContext.Provider>
                 </SessionStatsProvider>
@@ -710,6 +764,8 @@ export const renderWithProviders = (
 
   return {
     ...renderResult,
+    capturedOverflowState,
+    capturedOverflowActions,
     simulateClick: (col: number, row: number, button?: 0 | 1 | 2) =>
       simulateClick(renderResult.stdin, col, row, button),
   };
