@@ -225,8 +225,14 @@ export const AppContainer = (props: AppContainerProps) => {
   const notificationsEnabled = isNotificationsEnabled(settings);
 
   const voiceConfig = useMemo(
-    () => ({ whisperPath: settings.merged.voice?.whisperPath }),
-    [settings.merged.voice?.whisperPath],
+    () => ({
+      provider: settings.merged.voice?.provider as
+        | 'gemini'
+        | 'whisper'
+        | undefined,
+      whisperPath: settings.merged.voice?.whisperPath,
+    }),
+    [settings.merged.voice?.provider, settings.merged.voice?.whisperPath],
   );
   const voice = useVoiceInput(voiceConfig);
 

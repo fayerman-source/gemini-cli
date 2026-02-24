@@ -755,6 +755,19 @@ const SETTINGS_SCHEMA = {
     description: 'Settings for voice input.',
     showInDialog: true,
     properties: {
+      provider: {
+        type: 'enum',
+        label: 'Voice Provider',
+        category: 'General',
+        requiresRestart: false,
+        default: 'gemini',
+        description: 'The backend to use for voice transcription.',
+        showInDialog: true,
+        options: [
+          { value: 'gemini', label: 'Gemini API (Zero Install)' },
+          { value: 'whisper', label: 'Local Whisper (Requires installation)' },
+        ],
+      },
       whisperPath: {
         type: 'string',
         label: 'Whisper Binary Path',
