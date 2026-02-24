@@ -231,8 +231,13 @@ export const AppContainer = (props: AppContainerProps) => {
         | 'whisper'
         | undefined,
       whisperPath: settings.merged.voice?.whisperPath,
+      config,
     }),
-    [settings.merged.voice?.provider, settings.merged.voice?.whisperPath],
+    [
+      settings.merged.voice?.provider,
+      settings.merged.voice?.whisperPath,
+      config,
+    ],
   );
   const voice = useVoiceInput(voiceConfig);
 
