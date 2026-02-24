@@ -4,25 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { Config } from '@google/gemini-cli-core';
+import { type Config, LlmRole } from '@google/gemini-cli-core';
 import { spawn } from 'node:child_process';
 import { delimiter, join } from 'node:path';
 import { stat } from 'node:fs/promises';
-import { appendFileSync } from 'node:fs';
 import type { VoiceBackend, VoiceBackendOptions } from './types.js';
 import type { GenerateContentParameters } from '@google/genai';
-import { LlmRole } from '@google/gemini-cli-core';
-
-function logToFile(msg: string) {
-  try {
-    appendFileSync(
-      'VOICE_DEBUG.log',
-      `[${new Date().toISOString()}] [GeminiREST] ${msg}\n`,
-    );
-  } catch {
-    // ignore
-  }
-}
 
 const SAMPLE_RATE = 16000;
 const CHANNELS = 1;
@@ -61,7 +48,6 @@ export class GeminiRestBackend implements VoiceBackend {
   }
 
   async start(): Promise<void> {
-    logToFile('start() called');
     if (this.recordingProcess) return;
 
     try {
@@ -132,7 +118,6 @@ export class GeminiRestBackend implements VoiceBackend {
   }
 
   async stop(): Promise<void> {
-    logToFile('stop() called');
     if (!this.recordingProcess) return;
 
     this.isStopping = true;
@@ -150,10 +135,10 @@ export class GeminiRestBackend implements VoiceBackend {
       const audioBuffer = Buffer.concat(this.audioChunks);
       if (audioBuffer.length === 0) throw new Error('No audio captured');
 
-      logToFile(
-        `captured ${audioBuffer.length} bytes. Transcribing via ContentGenerator...`,
-      );
-      const transcript = await this.transcribe(audioBuffer);
+      // Create WAV buffer from raw PCM
+      const wavBuffer = this.createWavBuffer(audioBuffer, SAMPLE_RATE);
+
+      const transcript = await this.transcribe(wavBuffer);
       this.options.onTranscript(transcript);
 
       this.options.onStateChange({
@@ -162,9 +147,6 @@ export class GeminiRestBackend implements VoiceBackend {
         error: null,
       });
     } catch (err) {
-      logToFile(
-        `TRANSCRIPTION ERROR: ${err instanceof Error ? err.message : String(err)}`,
-      );
       this.options.onStateChange({
         isRecording: false,
         isTranscribing: false,
@@ -175,16 +157,41 @@ export class GeminiRestBackend implements VoiceBackend {
     }
   }
 
+  private createWavBuffer(pcmBuffer: Buffer, sampleRate: number): Buffer {
+    const header = Buffer.alloc(44);
+    const dataSize = pcmBuffer.length;
+
+    header.write('RIFF', 0);
+    header.writeUInt32LE(dataSize + 36, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16); // format chunk size
+    header.writeUInt16LE(1, 20); // audio format (PCM)
+    header.writeUInt16LE(CHANNELS, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(sampleRate * CHANNELS * 2, 28); // byte rate
+    header.writeUInt16LE(CHANNELS * 2, 32); // block align
+    header.writeUInt16LE(16, 34); // bits per sample
+    header.write('data', 36);
+    header.writeUInt32LE(dataSize, 40);
+
+    return Buffer.concat([header, pcmBuffer]);
+  }
+
   private async transcribe(audioBuffer: Buffer): Promise<string> {
     const generator = this.config.getContentGenerator();
     if (!generator) throw new Error('Content generator not initialized');
 
     const prompt =
       'Transcribe the following audio exactly. Return only the transcription text.';
-    const model = this.config.getModel();
+
+    // Resolve for intent, but use the stable internal ID for the actual call
+    // Note: 'gemini-3-flash-preview' is used for optimal transcription speed and quality
+    // in this environment.
+    const transcriptionModel = 'gemini-3-flash-preview';
 
     const request: GenerateContentParameters = {
-      model,
+      model: transcriptionModel,
       contents: [
         {
           role: 'user',
@@ -192,7 +199,7 @@ export class GeminiRestBackend implements VoiceBackend {
             { text: prompt },
             {
               inlineData: {
-                mimeType: 'audio/pcm;rate=16000',
+                mimeType: 'audio/wav',
                 data: audioBuffer.toString('base64'),
               },
             },
@@ -213,7 +220,6 @@ export class GeminiRestBackend implements VoiceBackend {
   }
 
   async cleanup(): Promise<void> {
-    logToFile('cleanup() called');
     if (this.recordingProcess) {
       this.recordingProcess.kill('SIGINT');
       this.recordingProcess = null;
